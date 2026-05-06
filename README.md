@@ -2,6 +2,14 @@
 
 SQL queries for analyzing webcompat bug resolution times in STMO (sql.telemetry.mozilla.org).
 
+## Dashboard
+
+**URL:** https://sql.telemetry.mozilla.org/dashboards/webcompat-bugs-lifecycle_1
+
+The dashboard shows:
+- Sitepatch lifetime chart with bug counts by priority
+- Diagnosis lifetime chart with bug counts by priority
+
 ## Setup
 
 ### Prerequisites
@@ -27,21 +35,29 @@ echo "REDASH_API_KEY=your_api_key_here" > .env
 
 ## Queries
 
-### 1. Sitepatch Lifetime Percentiles
-**File:** `webcompat_bugs_sitepatch_lifetime.sql`
-**STMO:** https://sql.telemetry.mozilla.org/queries/119309
+### Lifetime Percentiles
 
-Shows how long bugs spend in `needs_sitepatch` status, broken down by percentiles and priority.
+| Query | File | STMO |
+|-------|------|------|
+| Sitepatch Lifetime | `webcompat_bugs_sitepatch_lifetime.sql` | [119309](https://sql.telemetry.mozilla.org/queries/119309) |
+| Diagnosis Lifetime | `webcompat_bugs_diagnosis_lifetime.sql` | [119310](https://sql.telemetry.mozilla.org/queries/119310) |
 
-### 2. Diagnosis Lifetime Percentiles
-**File:** `webcompat_bugs_diagnosis_lifetime.sql`
-**STMO:** https://sql.telemetry.mozilla.org/queries/119310
+Shows how long bugs spend in each status, broken down by percentiles (p10-p90) and priority (P1/P2/P3).
 
-Shows how long bugs spend in `needs_diagnosis` status, broken down by percentiles and priority.
+### Bug Counts
 
-### 3. Original Combined Query
-**File:** `webcompat_bugs_lifetime_per_status.sql`
-**STMO:** https://sql.telemetry.mozilla.org/queries/116893
+| Query | File | STMO |
+|-------|------|------|
+| Sitepatch Count | `webcompat_bugs_sitepatch_count.sql` | [119314](https://sql.telemetry.mozilla.org/queries/119314) |
+| Diagnosis Count | `webcompat_bugs_diagnosis_count.sql` | [119315](https://sql.telemetry.mozilla.org/queries/119315) |
+
+Shows number of bugs by priority for each status.
+
+### Original Query
+
+| Query | File | STMO |
+|-------|------|------|
+| Combined Lifetime | `webcompat_bugs_lifetime_per_status.sql` | [116893](https://sql.telemetry.mozilla.org/queries/116893) |
 
 Original query showing average lifetime for both statuses.
 
@@ -81,7 +97,7 @@ stmocli pull
 
 ## Chart Configuration
 
-Both queries have bar chart visualizations with:
+Lifetime charts have bar chart visualizations with:
 - **X-axis:** Percentiles (p10-p90) representing "% of bugs"
 - **Y-axis:** Days to resolve
 - **Stacked bars:** P1 (red), P2 (orange), P3 (blue)
@@ -107,7 +123,8 @@ Both queries have bar chart visualizations with:
 |------|-------------|
 | `.env` | API key (not committed) |
 | `.stmocli.conf` | Query tracking configuration |
-| `*.sql` | SQL query files |
+| `*_lifetime.sql` | Percentile distribution queries |
+| `*_count.sql` | Bug count queries |
 | `run_queries.py` | Script to run queries locally |
 
 ## stmo-cli Commands Reference
@@ -120,9 +137,3 @@ stmocli pull              # Pull latest from STMO
 stmocli view <file.sql>   # Open query in browser
 stmocli fork <query_id>   # Copy and track a query
 ```
-
-## Notes
-
-- The `stmocli` binary is installed at: `/Users/bchauvet/Library/Python/3.9/bin/stmocli`
-- Add to PATH if needed: `export PATH="$PATH:/Users/bchauvet/Library/Python/3.9/bin"`
-- stmo-cli project is archived but still functional
