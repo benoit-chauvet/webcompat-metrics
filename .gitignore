@@ -1,0 +1,22 @@
+# Environment variables (contains secrets)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+
+# Debug/temporary scripts
+run_query_debug.py
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
