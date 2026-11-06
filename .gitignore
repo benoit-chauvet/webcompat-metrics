@@ -20,3 +20,6 @@ run_query_debug.py
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated hackbot report data (contains staff emails and internal run data)
+hackbot/*-data.js

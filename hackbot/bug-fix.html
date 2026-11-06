@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AutoWebCompat patches – Bug-fix</title>
+<style>
+:root{--bg:#fff;--fg:#1b1b1f;--muted:#6b6b76;--card:#f5f5f8;--line:#dcdce3;--accent:#2a6df4;
+--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00}
+@media (prefers-color-scheme:dark){:root{--bg:#16161a;--fg:#e8e8ee;--muted:#9a9aa8;--card:#21212a;
+--line:#34343f;--accent:#7aa2ff;--ok:#4cc38a;--bad:#ff7b7b;--warn:#f0b04a}}
+body{font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0;
+padding:24px 16px}
+h1{font-size:26px;margin:0 0 12px}h2{font-size:20px;margin:0}.sub{color:var(--muted);margin:4px 0 20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.card{background:var(--card);border-radius:8px;padding:12px 14px}
+.card b{display:block;font-size:22px}.card span{color:var(--muted);font-size:12px}
+.wrap{overflow:scroll;max-height:75vh;scrollbar-width:auto}
+.wrap::-webkit-scrollbar{width:14px;height:14px}
+.wrap::-webkit-scrollbar-track{background:var(--card)}
+.wrap::-webkit-scrollbar-thumb{background:var(--muted);border-radius:7px;border:3px solid var(--card)}
+.wrap>table>thead th{position:sticky;top:0;background:var(--bg);z-index:1}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600;cursor:pointer;user-select:none}a{color:var(--accent)}
+.succeeded{color:var(--ok)}.failed{color:var(--bad)}.other{color:var(--warn)}
+nav{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+nav a{padding:6px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+nav a:hover{color:var(--fg)}nav a[aria-current]{color:var(--fg);font-weight:600;border-bottom-color:var(--accent)}
+textarea.comment{width:260px;height:2.6em;font:inherit;color:var(--fg);background:var(--bg);
+border:1px solid var(--line);border-radius:6px;padding:4px 6px;resize:vertical;white-space:pre-wrap}
+textarea.comment:focus{outline:2px solid var(--accent);outline-offset:-1px}
+#tip{position:fixed;z-index:10;display:none;max-width:min(70ch,90vw);padding:8px 12px;border-radius:8px;
+background:var(--fg);color:var(--bg);font-size:inherit;line-height:1.4;white-space:pre-wrap;pointer-events:none;
+box-shadow:0 4px 16px rgba(0,0,0,.25)}
+#error{color:var(--bad)}
+</style>
+</head>
+<body>
+<div id="tip"></div>
+<h1>AutoWebCompat patches</h1>
+<nav><a href="bug-fix.html" aria-current="page">Bug-fix</a><a href="interventions.html">Interventions</a></nav>
+<h2 id="title">Bug-fix</h2>
+<p class="sub" id="sub">Loading…</p>
+<p id="error"></p>
+<div class="cards" id="cards"></div>
+<div class="wrap"><table>
+<thead><tr id="head"></tr></thead>
+<tbody id="body"></tbody>
+</table></div>
+
+<script src="bug-fix-data.js"></script>
+<script src="/quick.js" onerror="void 0"></script>
+<script>
+
+const $ = id => document.getElementById(id);
+const fmtDate = s => s ? s.slice(0, 16).replace("T", " ") : "-";
+// Display status of a bug: "Fixed" when its revision is Closed and the bug RESOLVED, else the raw status.
+const isFixed = (bug, phab) =>
+  /^RESOLVED/.test(bug.bug_status || "") && (phab?.status_name || "").toLowerCase() === "closed";
+const dash = v => v === null || v === undefined || v === "" ? "-" : v;
+
+function el(tag, props = {}, children = []) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...[].concat(children));
+  return node;
+}
+function link(href, text) {
+  return el("a", { href, target: "_blank", rel: "noopener" }, text);
+}
+
+
+// ---- comments ------------------------------------------------------------
+// Stored in Quick's site datastore (quick.data), which is separate from the deployed
+// files: republishing the site never touches it. All comments live in one object under
+// COMMENTS_KEY, keyed by bug id (so a comment follows the bug when its latest run
+// changes). Opened from disk (no /quick.js), they fall back to this browser's localStorage.
+const COMMENTS_KEY = "bugfix_comments";
+const hasQuick = typeof quick !== "undefined" && !!quick.data;
+const commentKey = r => r.bug_id ? `bug_${r.bug_id}` : `run_${String(r.run_id).replace(/[^A-Za-z0-9]/g, "_")}`;
+let comments = {};
+
+function applyComments() {
+  document.querySelectorAll("textarea.comment").forEach(t => {
+    const v = comments[t.dataset.key] || "";
+    if (t !== document.activeElement && t.value !== v) t.value = v;
+  });
+}
+
+async function loadComments() {
+  if (hasQuick) {
+    try {
+      comments = (await quick.data.get(COMMENTS_KEY)) || {};
+      quick.data.subscribe(COMMENTS_KEY, v => { comments = v || {}; applyComments(); });
+      return "Comments are saved on this site and shared with everyone who opens it.";
+    } catch (err) {
+      return `Comments could not be loaded (${err.message}).`;
+    }
+  }
+  try { comments = JSON.parse(localStorage.getItem(COMMENTS_KEY) || "{}"); } catch { comments = {}; }
+  return "Comments are saved in this browser only. Open the published site to share them.";
+}
+
+function saveComment(key, text, note) {
+  const edit = c => { c = { ...(c || {}) }; if (text) c[key] = text; else delete c[key]; return c; };
+  comments = edit(comments);
+  if (!hasQuick) {
+    try { localStorage.setItem(COMMENTS_KEY, JSON.stringify(comments)); note("saved"); } catch { note("not saved"); }
+    return;
+  }
+  note("saving…");
+  quick.data.update(COMMENTS_KEY, edit).then(() => note("saved"), err => note(`not saved: ${err.message}`));
+}
+
+function commentBox(r) {
+  const key = commentKey(r);
+  const box = el("textarea", { className: "comment", placeholder: "Add a comment", value: comments[key] || "" });
+  box.dataset.key = key;
+  const note = msg => { box.title = msg; };
+  let timer;
+  box.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => saveComment(key, box.value.trim(), note), 600); });
+  box.addEventListener("blur", () => { clearTimeout(timer); if ((comments[key] || "") !== box.value.trim()) saveComment(key, box.value.trim(), note); });
+  return box;
+}
+
+// Revision title without its "Bug 123456 - " prefix, cut to 50 characters (full text as tooltip).
+const cleanTitle = t => (t || "").replace(/^\s*bug\s*\d+\s*[-\u2013:]\s*/i, "");
+const titleCell = t => {
+  const title = cleanTitle(t);
+  if (!title) return "-";
+  const node = el("span", {}, title.length > 50 ? title.slice(0, 50) + "…" : title);
+  node.dataset.tip = title;
+  return node;
+};
+
+// Each column: label, how to render the cell, and the value used for sorting.
+const COLUMNS = (meta) => [
+  { label: "Run", sort: r => r.run_id,
+    cell: r => link(meta.run_url.replace("{run_id}", r.run_id), "view") },
+  { label: "Bug", sort: r => r.bug_id || 0,
+    cell: r => r.bug_id ? link(`${meta.bugzilla_url}/show_bug.cgi?id=${r.bug_id}`, String(r.bug_id)) : "-" },
+  { label: "Bug status", sort: r => isFixed(r, r.phab) ? "Fixed" : r.bug_status || "",
+    cell: r => isFixed(r, r.phab) ? el("span", { className: "succeeded" }, "Fixed") : dash(r.bug_status) },
+  { label: "Priority", sort: r => r.bug_priority || "", cell: r => dash(r.bug_priority) },
+  { label: "Score", sort: r => r.impact_score ?? -1, cell: r => dash(r.impact_score) },
+  { label: "Run result", sort: r => r.status,
+    cell: r => el("span", { className: ["succeeded", "failed"].includes(r.status) ? r.status : "other" }, r.status) },
+  { label: "Requester", sort: r => r.requested_by || "", cell: r => dash(r.requested_by) },
+  { label: "Created (UTC)", sort: r => r.created || "", cell: r => fmtDate(r.created) },
+  { label: "Patch", sort: r => r.patch, cell: r => r.patch ? "yes" : "no" },
+  { label: "Phab status", sort: r => r.phab?.status_name || "", cell: r => dash(r.phab?.status_name) },
+  { label: "Revision", sort: r => r.revision || 0,
+    cell: r => r.revision ? link(`${meta.phabricator_url}/D${r.revision}`, `D${r.revision}`) : "-" },
+  { label: "Title", sort: r => cleanTitle(r.phab?.title), cell: r => titleCell(r.phab?.title) },
+  { label: "Comment", sort: r => comments[commentKey(r)] || "", cell: r => commentBox(r) },
+];
+
+function render({ meta, runs }) {
+  $("sub").textContent = `Scope: ${meta.scope} · generated ${fmtDate(meta.generated)} UTC`;
+
+  // Share of the total score (one score per bug) held by bugs shown as "Fixed".
+  const bugs = new Map();
+  for (const r of runs) {
+    const key = r.bug_id ?? `run-${r.run_id}`, b = bugs.get(key);
+    bugs.set(key, { score: Number(r.impact_score) || 0, fixed: (b?.fixed || false) || isFixed(r, r.phab) });
+  }
+  const totalScore = [...bugs.values()].reduce((sum, b) => sum + b.score, 0);
+  const fixedScore = [...bugs.values()].filter(b => b.fixed).reduce((sum, b) => sum + b.score, 0);
+  const fixedShare = `${fixedScore} / ${totalScore}`;
+  const cards = [
+    [fixedShare, `impact score (${(100 * fixedScore / totalScore).toFixed(1)}%)`],
+    //[runs.length, "runs"],
+    [new Set(runs.map(r => r.bug_id).filter(Boolean)).size, "bugs"],
+    //[runs.filter(r => r.status === "succeeded").length, "succeeded"],
+    [runs.filter(r => r.patch).length, "with patch"],
+    [runs.filter(r => r.revision).length, "Phabricator revisions"],
+    [runs.filter(r => r.phab?.status === meta.landed_status).length, "landed"],
+  ];
+  $("cards").replaceChildren(...cards.map(([v, k]) =>
+    el("div", { className: "card" }, [el("b", {}, String(v)), el("span", {}, k)])));
+
+  const columns = COLUMNS(meta);
+  let sorted = [...runs].sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+  const draw = () => $("body").replaceChildren(...sorted.map(r =>
+    el("tr", {}, columns.map(c => el("td", {}, c.cell(r))))));
+
+  let sortDir = {};
+  $("head").replaceChildren(...columns.map((c, i) => {
+    const th = el("th", {}, c.label);
+    th.addEventListener("click", () => {
+      const dir = sortDir[i] = -(sortDir[i] || -1);
+      sorted.sort((a, b) => {
+        const x = c.sort(a), y = c.sort(b);
+        return dir * (typeof x === "string" ? x.localeCompare(y) : Number(x) - Number(y));
+      });
+      draw();
+    });
+    return th;
+  }));
+  draw();
+}
+
+// Custom tooltip (the native title tooltip can't be restyled).
+const tip = $("tip");
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest("[data-tip]");
+  tip.style.display = t ? "block" : "none";
+  if (t) tip.textContent = t.dataset.tip;
+});
+document.addEventListener("mousemove", e => {
+  if (tip.style.display === "none") return;
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(4, Math.min(e.clientX + pad, innerWidth - w - 4)) + "px";
+  tip.style.top = (e.clientY + pad + h > innerHeight ? e.clientY - h - pad : e.clientY + pad) + "px";
+});
+
+if (window.REPORT_DATA) {
+  loadComments().then(note => {
+    render(window.REPORT_DATA);
+    $("sub").textContent += ` · ${note}`;
+  });
+} else {
+  $("sub").textContent = "";
+  $("error").textContent = "bug-fix-data.js not found or empty. Generate it with: python3 hackbot/generate-bugfix.py";
+}
+</script>
+</body>
+</html>

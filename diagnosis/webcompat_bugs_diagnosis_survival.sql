@@ -24,7 +24,7 @@ diagnosis_durations AS (
     d_out.exit_time,
     TIMESTAMP_DIFF(d_out.exit_time, d_in.enter_time, SECOND)/(3600*24) as days_in_status
   FROM diagnosis_enter d_in
-  LEFT JOIN diagnosis_exit d_out ON d_in.number = d_out.number
+  inner JOIN diagnosis_exit d_out ON d_in.number = d_out.number
   JOIN `moz-fx-dev-dschubert-wckb.webcompat_knowledge_base.site_reports` r ON r.number = d_in.number
   WHERE r.webcompat_priority IN ('P1', 'P2', 'P3')
   AND DATE(r.creation_time) BETWEEN DATE('{{from}}') AND DATE('{{to}}')
@@ -35,17 +35,17 @@ totals AS (
   GROUP BY webcompat_priority
 ),
 counts AS (
-  SELECT
+  SELECT 
     day,
-    COUNTIF(d.webcompat_priority = 'P1' AND (d.days_in_status >= day OR d.days_in_status IS NULL)) as open_p1,
-    COUNTIF(d.webcompat_priority = 'P2' AND (d.days_in_status >= day OR d.days_in_status IS NULL)) as open_p2,
-    COUNTIF(d.webcompat_priority = 'P3' AND (d.days_in_status >= day OR d.days_in_status IS NULL)) as open_p3
+    COUNTIF(d.webcompat_priority = 'P1' AND d.days_in_status >= day) as open_p1,
+    COUNTIF(d.webcompat_priority = 'P2' AND d.days_in_status >= day) as open_p2,
+    COUNTIF(d.webcompat_priority = 'P3' AND d.days_in_status >= day) as open_p3
   FROM UNNEST(GENERATE_ARRAY(0, 90)) as day
   LEFT JOIN diagnosis_durations d ON TRUE
   GROUP BY day
 )
 
-SELECT
+SELECT 
   day,
   SAFE_DIVIDE(open_p1, (SELECT total FROM totals WHERE webcompat_priority = 'P1')) as P1,
   SAFE_DIVIDE(open_p2, (SELECT total FROM totals WHERE webcompat_priority = 'P2')) as P2,

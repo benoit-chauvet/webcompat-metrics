@@ -1,3 +1,4 @@
+
 -- Sitepatch Survival Rate: fraction of bugs still in needs_sitepatch status over time
 WITH
 sitepatch_enter AS (
@@ -24,7 +25,7 @@ sitepatch_durations AS (
     sp_out.exit_time,
     TIMESTAMP_DIFF(sp_out.exit_time, sp_in.enter_time, SECOND)/(3600*24) as days_in_status
   FROM sitepatch_enter sp_in
-  LEFT JOIN sitepatch_exit sp_out ON sp_in.number = sp_out.number
+  INNER JOIN sitepatch_exit sp_out ON sp_in.number = sp_out.number
   JOIN `moz-fx-dev-dschubert-wckb.webcompat_knowledge_base.site_reports` r ON r.number = sp_in.number
   WHERE r.webcompat_priority IN ('P1', 'P2', 'P3')
   AND DATE(r.creation_time) BETWEEN DATE('{{from}}') AND DATE('{{to}}')
@@ -35,17 +36,17 @@ totals AS (
   GROUP BY webcompat_priority
 ),
 counts AS (
-  SELECT
+  SELECT 
     day,
-    COUNTIF(d.webcompat_priority = 'P1' AND (d.days_in_status >= day OR d.days_in_status IS NULL)) as open_p1,
-    COUNTIF(d.webcompat_priority = 'P2' AND (d.days_in_status >= day OR d.days_in_status IS NULL)) as open_p2,
-    COUNTIF(d.webcompat_priority = 'P3' AND (d.days_in_status >= day OR d.days_in_status IS NULL)) as open_p3
+    COUNTIF(d.webcompat_priority = 'P1' AND d.days_in_status >= day) as open_p1,
+    COUNTIF(d.webcompat_priority = 'P2' AND d.days_in_status >= day) as open_p2,
+    COUNTIF(d.webcompat_priority = 'P3' AND d.days_in_status >= day) as open_p3
   FROM UNNEST(GENERATE_ARRAY(0, 90)) as day
   LEFT JOIN sitepatch_durations d ON TRUE
   GROUP BY day
 )
 
-SELECT
+SELECT 
   day,
   SAFE_DIVIDE(open_p1, (SELECT total FROM totals WHERE webcompat_priority = 'P1')) as P1,
   SAFE_DIVIDE(open_p2, (SELECT total FROM totals WHERE webcompat_priority = 'P2')) as P2,

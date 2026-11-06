@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AutoWebCompat patches – Interventions</title>
+<style>
+:root{--bg:#fff;--fg:#1b1b1f;--muted:#6b6b76;--card:#f5f5f8;--line:#dcdce3;--accent:#2a6df4;
+--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00}
+@media (prefers-color-scheme:dark){:root{--bg:#16161a;--fg:#e8e8ee;--muted:#9a9aa8;--card:#21212a;
+--line:#34343f;--accent:#7aa2ff;--ok:#4cc38a;--bad:#ff7b7b;--warn:#f0b04a}}
+body{font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0;
+padding:24px 16px}
+h1{font-size:26px;margin:0 0 12px}h2{font-size:20px;margin:0}.sub{color:var(--muted);margin:4px 0 20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.card{background:var(--card);border-radius:8px;padding:12px 14px}
+.card b{display:block;font-size:22px}.card span{color:var(--muted);font-size:12px}
+.tools{margin-bottom:8px}
+button{font:inherit;color:var(--accent);background:none;border:1px solid var(--line);border-radius:6px;
+padding:2px 10px;cursor:pointer}
+.wrap{overflow:scroll;max-height:75vh;scrollbar-width:auto}
+.wrap::-webkit-scrollbar{width:14px;height:14px}
+.wrap::-webkit-scrollbar-track{background:var(--card)}
+.wrap::-webkit-scrollbar-thumb{background:var(--muted);border-radius:7px;border:3px solid var(--card)}
+.wrap>table>thead th{position:sticky;top:0;background:var(--bg);z-index:1}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600;cursor:pointer;user-select:none}a{color:var(--accent)}
+tr.bug{cursor:pointer}tr.bug:hover{background:var(--card)}
+.caret{display:inline-block;width:1em;color:var(--muted)}
+tr.runs>td{padding:0 0 0 28px;background:var(--card)}
+tr.runs table th{cursor:default}
+tr.runs table tr:last-child td{border-bottom:0}
+.succeeded{color:var(--ok)}.failed{color:var(--bad)}.other{color:var(--warn)}
+.clip{display:inline-block;max-width:40ch;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+#tip{position:fixed;z-index:10;display:none;max-width:min(70ch,90vw);padding:8px 12px;border-radius:8px;
+background:var(--fg);color:var(--bg);font-size:inherit;line-height:1.4;white-space:pre-wrap;pointer-events:none;
+box-shadow:0 4px 16px rgba(0,0,0,.25)}
+nav{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+nav a{padding:6px 14px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+nav a:hover{color:var(--fg)}nav a[aria-current]{color:var(--fg);font-weight:600;border-bottom-color:var(--accent)}
+#error{color:var(--bad)}
+</style>
+</head>
+<body>
+<h1>AutoWebCompat patches</h1>
+<nav><a href="bug-fix.html">Bug-fix</a><a href="interventions.html" aria-current="page">Interventions</a></nav>
+<div id="tip"></div>
+<h2 id="title">Interventions</h2>
+<p class="sub" id="sub">Loading…</p>
+<p id="error"></p>
+<div class="cards" id="cards"></div>
+<div class="tools"><button id="toggle-all">Expand all</button></div>
+<div class="wrap"><table>
+<thead><tr id="head"></tr></thead>
+<tbody id="body"></tbody>
+</table></div>
+
+<script src="interventions-data.js"></script>
+<script>
+
+const $ = id => document.getElementById(id);
+const fmtDate = s => s ? s.slice(0, 16).replace("T", " ") : "-";
+const yesNo = v => v === true ? "yes" : v === false ? "no" : "-";
+const dash = v => v === null || v === undefined || v === "" ? "-" : v;
+
+function el(tag, props = {}, children = []) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...[].concat(children));
+  return node;
+}
+function link(href, text) {
+  return el("a", { href, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, text);
+}
+const clip = text => { const n = el("span", { className: "clip" }, text); n.dataset.tip = text; return n; };
+const bugStatus = bug => bug.sitepatch_applied ? "Sitepatch Applied" : bug.bug_status || "";
+const bugStatusCell = bug => bug.sitepatch_applied
+  ? el("span", { className: "succeeded" }, "Sitepatch Applied")
+  : dash(bug.bug_status);
+const statusSpan = s => el("span", { className: ["succeeded", "failed"].includes(s) ? s : "other" }, s);
+
+// A bug groups its runs; a column is { label, cell, sort }.
+function groupByBug(runs) {
+  const groups = new Map();
+  for (const r of runs) {
+    const key = r.bug_id ?? `run-${r.run_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  return [...groups.values()].map(rs => {
+    rs.sort((a, b) => (a.created || "").localeCompare(b.created || ""));
+    const latest = rs[rs.length - 1];
+    return { bug: latest, latest, runs: rs };
+  });
+}
+
+const BUG_COLUMNS = (meta) => [
+  { label: "Bug", sort: g => g.bug.bug_id || 0,
+    cell: g => g.bug.bug_id ? link(`${meta.bugzilla_url}/show_bug.cgi?id=${g.bug.bug_id}`, String(g.bug.bug_id)) : "-" },
+  { label: "Bug status", sort: g => bugStatus(g.bug), cell: g => bugStatusCell(g.bug) },
+  { label: "Priority", sort: g => g.bug.bug_priority || "", cell: g => dash(g.bug.bug_priority) },
+  { label: "Impact score", sort: g => g.bug.impact_score ?? -1, cell: g => dash(g.bug.impact_score) },
+  { label: "Runs", sort: g => g.runs.length, cell: g => g.runs.length },
+  { label: "Latest result", sort: g => g.latest.status, cell: g => statusSpan(g.latest.status) },
+  { label: "Revision", sort: g => g.latest.revision || 0,
+    cell: g => g.latest.revision ? link(`${meta.phabricator_url}/D${g.latest.revision}`, `D${g.latest.revision}`) : "-" },
+  { label: "Phab status", sort: g => g.latest.phab?.status_name || "", cell: g => dash(g.latest.phab?.status_name) },
+  { label: "Domain", sort: g => g.bug.bug_domain || "", cell: g => dash(g.bug.bug_domain) },
+  { label: "Author", sort: g => g.latest.phab?.author || "", cell: g => dash(g.latest.phab?.author) },
+];
+
+const RUN_COLUMNS = (meta) => [
+  { label: "Run", cell: r => link(meta.run_url.replace("{run_id}", r.run_id), "view") },
+  { label: "Kind", cell: r => dash(r.kind) },
+  { label: "Build succeeded", cell: r => yesNo(r.build_succeeded) },
+  { label: "Requester", cell: r => dash(r.requested_by) },
+  { label: "Created (UTC)", cell: r => fmtDate(r.created) },
+  { label: "Summary", cell: r => r.result_summary ? clip(r.result_summary) : "-" },
+  { label: "Failure reason", cell: r => r.failure_reason ? clip(r.failure_reason) : "-" },
+];
+
+function runsTable(runs, columns) {
+  return el("table", {}, [
+    el("thead", {}, el("tr", {}, columns.map(c => el("th", {}, c.label)))),
+    el("tbody", {}, runs.map(r => el("tr", {}, columns.map(c => el("td", {}, c.cell(r)))))),
+  ]);
+}
+
+function render({ meta, runs }) {
+  $("sub").textContent = `Scope: ${meta.scope} · generated ${fmtDate(meta.generated)} UTC`;
+
+  const groups = groupByBug(runs);
+  // Share of the total impact score (one score per bug) held by bugs with a sitepatch applied.
+  const impact = g => Number(g.bug.impact_score) || 0;
+  const totalImpact = groups.reduce((sum, g) => sum + impact(g), 0);
+  const appliedImpact = groups.filter(g => g.bug.sitepatch_applied).reduce((sum, g) => sum + impact(g), 0);
+  const share = totalImpact ? `${appliedImpact} / ${totalImpact}` : "-";
+  const cards = [
+    [share, `impact score (${(100 * appliedImpact / totalImpact).toFixed(1)}%)`],
+    [groups.length, "bugs"],
+    [runs.length, "runs"],
+    // [groups.filter(g => g.latest.fixed_with_intervention).length, "bugs fixed (latest run)"],
+    // [runs.filter(r => r.wrote_intervention).length, "interventions written"],
+    [new Set(runs.map(r => r.revision).filter(Boolean)).size, "Phabricator revisions"],
+    [groups.filter(g => g.latest.phab?.status === meta.landed_status).length, "bugs landed"],
+  ];
+  $("cards").replaceChildren(...cards.map(([v, k]) =>
+    el("div", { className: "card" }, [el("b", {}, String(v)), el("span", {}, k)])));
+
+  const columns = BUG_COLUMNS(meta), runColumns = RUN_COLUMNS(meta);
+  const colspan = columns.length + 1;
+  const open = new Set();
+  groups.sort((a, b) => (b.latest.created || "").localeCompare(a.latest.created || ""));
+
+  const draw = () => $("body").replaceChildren(...groups.flatMap(g => {
+    const key = g.bug.bug_id ?? g.latest.run_id, isOpen = open.has(key);
+    const row = el("tr", { className: "bug", onclick: () => { isOpen ? open.delete(key) : open.add(key); draw(); } }, [
+      el("td", {}, el("span", { className: "caret" }, isOpen ? "▾" : "▸")),
+      ...columns.map(c => el("td", {}, c.cell(g))),
+    ]);
+    return isOpen
+      ? [row, el("tr", { className: "runs" }, el("td", { colSpan: colspan }, runsTable(g.runs, runColumns)))]
+      : [row];
+  }));
+
+  const sortDir = {};
+  $("head").replaceChildren(el("th", {}), ...columns.map((c, i) => {
+    const th = el("th", {}, c.label);
+    th.addEventListener("click", () => {
+      const dir = sortDir[i] = -(sortDir[i] || -1);
+      groups.sort((a, b) => {
+        const x = c.sort(a), y = c.sort(b);
+        return dir * (typeof x === "string" ? x.localeCompare(y) : Number(x) - Number(y));
+      });
+      draw();
+    });
+    return th;
+  }));
+
+  $("toggle-all").addEventListener("click", () => {
+    const expand = open.size < groups.length;
+    open.clear();
+    if (expand) groups.forEach(g => open.add(g.bug.bug_id ?? g.latest.run_id));
+    $("toggle-all").textContent = expand ? "Collapse all" : "Expand all";
+    draw();
+  });
+  draw();
+}
+
+// Custom tooltip (the native title tooltip can't be restyled).
+const tip = $("tip");
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest("[data-tip]");
+  tip.style.display = t ? "block" : "none";
+  if (t) tip.textContent = t.dataset.tip;
+});
+document.addEventListener("mousemove", e => {
+  if (tip.style.display === "none") return;
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(4, Math.min(e.clientX + pad, innerWidth - w - 4)) + "px";
+  tip.style.top = (e.clientY + pad + h > innerHeight ? e.clientY - h - pad : e.clientY + pad) + "px";
+});
+
+if (window.REPORT_DATA) {
+  render(window.REPORT_DATA);
+} else {
+  $("sub").textContent = "";
+  $("error").textContent = "interventions-data.js not found or empty. Generate it with: python3 hackbot/generate-interventions.py";
+}
+</script>
+</body>
+</html>

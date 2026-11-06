@@ -31,14 +31,11 @@ SELECT
   COUNT(*) as total_bugs,
   AVG(lifetime_days) as avg_lifetime,
   APPROX_QUANTILES(lifetime_days, 100)[OFFSET(10)] as p10_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(20)] as p20_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(30)] as p30_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(40)] as p40_days,
+  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(25)] as p25_days,
   APPROX_QUANTILES(lifetime_days, 100)[OFFSET(50)] as p50_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(60)] as p60_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(70)] as p70_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(80)] as p80_days,
-  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(90)] as p90_days
+  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(75)] as p75_days,
+  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(90)] as p90_days,
+  APPROX_QUANTILES(lifetime_days, 100)[OFFSET(100)] as p100_days
 FROM diagnosis_lifetimes
 GROUP BY webcompat_priority
 ),
@@ -50,14 +47,11 @@ SELECT
 FROM stats
 CROSS JOIN UNNEST([
   STRUCT('p10' as percentile, p10_days as resolved_in_days),
-  STRUCT('p20', p20_days),
-  STRUCT('p30', p30_days),
-  STRUCT('p40', p40_days),
+  STRUCT('p25', p25_days),
   STRUCT('p50', p50_days),
-  STRUCT('p60', p60_days),
-  STRUCT('p70', p70_days),
-  STRUCT('p80', p80_days),
-  STRUCT('p90', p90_days)
+  STRUCT('p75', p75_days),
+  STRUCT('p90', p90_days),
+  STRUCT('p100', p100_days)
 ])
 )
 
@@ -68,5 +62,5 @@ SELECT
   MAX(CASE WHEN webcompat_priority = 'P3' THEN resolved_in_days END) as P3
 FROM unpivoted
 GROUP BY percentile
-ORDER BY percentile
+--ORDER BY percentile
 ;
